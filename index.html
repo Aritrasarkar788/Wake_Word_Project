@@ -18,7 +18,7 @@ html<!DOCTYPE html>
     </style>
 </head>
 <body>
-window.Module = { locateFile: (path) => path };
+
 <div class="card">
     <h2>🗣️ "hey_dragon" Live Detector</h2>
     <div id="status">Status: Waiting to load model...</div>
@@ -42,7 +42,7 @@ window.Module = { locateFile: (path) => path };
     const statusDiv = document.getElementById('status');
 
     // Wait for WebAssembly to boot up completely
-    
+    window.Module = { locateFile: (path) => path };
     window.Module.onRuntimeInitialized = async () => {
         statusDiv.innerText = "Model binaries loaded. Click button to initialize microphone.";
         classifier = new EdgeImpulseClassifier(window.Module);
