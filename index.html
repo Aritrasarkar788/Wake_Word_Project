@@ -20,7 +20,7 @@
 
 <div class="card">
     <h2>🗣️ "hey_dragon" Live Detector</h2>
-    <div id="status">Status: Downloading WebAssembly scripts from Vercel...</div>
+    <div id="status">Status: Connecting WebAssembly compiled binaries...</div>
     <button id="startBtn" style="display:none;">Start Live Listening</button>
 
     <div class="label-box">
@@ -38,61 +38,63 @@
 </div>
 
 <script>
-    // Global elements references
     const startBtn = document.getElementById('startBtn');
     const statusDiv = document.getElementById('status');
     const logDiv = document.getElementById('debug-log');
     let classifier;
 
-    // Global script crash visualizer
     window.addEventListener('error', function(e) {
         logDiv.style.display = 'block';
-        logDiv.innerHTML += '<strong>Runtime Error:</strong> ' + e.message + '<br>';
+        logDiv.innerHTML += '<strong>Runtime Trace:</strong> ' + e.message + '<br>';
     });
 
-    // This function will execute ONLY after edge-impulse-standalone.js is fully loaded
-    function onEdgeImpulseScriptLoaded() {
-        try {
-            statusDiv.innerText = "Script downloaded! Initializing core WebAssembly module...";
-
-            if (typeof Module === 'undefined' || typeof EdgeImpulseClassifier === 'undefined') {
-                throw new Error("Core engine variables missing. The file may be corrupt or incomplete.");
-            }
-
-            // Bind asset paths safely before instantiation
-            Module.locateFile = function(path) {
-                return window.location.origin + '/' + path;
-            };
-
-            // Instantiate classifier engine context wrapper
-            classifier = new EdgeImpulseClassifier(Module);
-            
-            // Wait for WebAssembly binary instantiation completion
-            classifier.init().then(() => {
-                statusDiv.innerText = "Model ready! Click below to stream microphone audio.";
-                startBtn.style.display = 'inline-block';
-            }).catch(initErr => {
-                throw new Error("WASM compilation aborted: " + initErr.message);
-            });
-
-        } catch (err) {
-            statusDiv.innerText = "Initialization crashed.";
-            logDiv.style.display = 'block';
-            logDiv.innerHTML += '<strong>Setup Error:</strong> ' + err.message + '<br>';
+    // Intercept default runtime parameters before engine script execution
+    window.Module = {
+        locateFile: function(path) {
+            return window.location.origin + '/' + path;
         }
-    }
+    };
 </script>
 
-<!-- Load script explicitly with an onboarding success callback trigger function -->
-<script src="edge-impulse-standalone.js" onload="onEdgeImpulseScriptLoaded()" onerror="statusDiv.innerText='Failed to load edge-impulse-standalone.js file over network.'"></script>
+<!-- Load Edge Impulse code engine wrapper -->
+<script src="edge-impulse-standalone.js"></script>
 
 <script>
-    // Audio engine logic 
+    async function runInitializer() {
+        try {
+            statusDiv.innerText = "Extracting mathematical model structures...";
+            
+            // Check whichever initialization namespace your bundle exports
+            const targetModule = window.Module || (window.Module && window.Module.Module);
+            const TargetClassifier = window.EdgeImpulseClassifier || (window.Module && window.Module.EdgeImpulseClassifier);
+
+            if (!TargetClassifier) {
+                throw new Error("EdgeImpulseClassifier class not discovered on browser canvas window context.");
+            }
+
+            classifier = new TargetClassifier(targetModule);
+            await classifier.init();
+
+            statusDiv.innerText = "Model loaded successfully! Click below to stream mic audio.";
+            startBtn.style.display = 'inline-block';
+
+        } catch (err) {
+            statusDiv.innerText = "Initialization crashed during loop.";
+            logDiv.style.display = 'block';
+            logDiv.innerHTML += '<strong>Verification Trace Error:</strong> ' + err.message + '<br>';
+        }
+    }
+
+    // Fire verification build hooks
+    window.addEventListener('load', runInitializer);
+</script>
+
+<script>
     startBtn.onclick = async () => {
         statusDiv.innerText = "Requesting phone microphone permission...";
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            statusDiv.innerText = "Microphone connected! Running continuous inference loop...";
+            statusDiv.innerText = "Microphone connected! Processing stream inference metrics...";
             startBtn.style.display = 'none';
 
             const targetSampleRate = classifier.properties.frequency || 16000; 
@@ -130,15 +132,15 @@
                         document.getElementById('dragonBox').className = `score-card ${dragonVal > 70 ? 'high' : ''}`;
 
                     } catch (err) {
-                        console.error("Inference run error:", err);
+                        console.error("Classification loop broken:", err);
                     }
 
                     audioBuffer = audioBuffer.slice(-Math.floor(requiredSamples / 2));
                 }
             };
         } catch (err) {
-            statusDiv.innerText = "Microphone mapping rejected.";
-            alert("Mic Stream Error: " + err.message);
+            statusDiv.innerText = "Microphone link failed.";
+            alert("Mic Error: " + err.message);
         }
     };
 </script>
