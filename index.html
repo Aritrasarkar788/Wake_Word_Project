@@ -1,0 +1,122 @@
+html<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Austral Project 1: Wake Word Test</title>
+    <!-- Load the Edge Impulse WebAssembly wrapper -->
+    <script src="edge-impulse-standalone.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background: #f4f6f9; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 500px; margin: auto; }
+        button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
+        button:hover { background: #0056b3; }
+        .label-box { display: flex; justify-content: space-around; margin-top: 25px; }
+        .score-card { background: #e9ecef; padding: 15px; border-radius: 8px; width: 40%; }
+        .high { background: #28a745 !important; color: white; font-weight: bold; }
+        #status { color: #6c757d; margin: 15px 0; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>🗣️ "hey_dragon" Live Detector</h2>
+    <div id="status">Status: Waiting to load model...</div>
+    <button id="startBtn">Start Live Listening</button>
+
+    <div class="label-box">
+        <div id="noiseBox" class="score-card">
+            <div>Noise</div>
+            <h3 id="noiseScore">0.0%</h3>
+        </div>
+        <div id="dragonBox" class="score-card">
+            <div>hey_dragon</div>
+            <h3 id="dragonScore">0.0%</h3>
+        </div>
+    </div>
+</div>
+
+<script>
+    let classifier;
+    const startBtn = document.getElementById('startBtn');
+    const statusDiv = document.getElementById('status');
+
+    // Wait for WebAssembly to boot up completely
+    window.Module.onRuntimeInitialized = async () => {
+        statusDiv.innerText = "Model binaries loaded. Click button to initialize microphone.";
+        classifier = new EdgeImpulseClassifier(window.Module);
+        await classifier.init();
+    };
+
+    startBtn.onclick = async () => {
+        if (!classifier) {
+            alert("Model is still loading, please wait a moment.");
+            return;
+        }
+        
+        statusDiv.innerText = "Requesting microphone permission...";
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            statusDiv.innerText = "Microphone connected! Listening for your wake word...";
+            startBtn.style.display = 'none';
+
+            // Pull audio specs natively expected by your specific MFCC/Classifier block setup
+            const targetSampleRate = classifier.properties.frequency; 
+            const windowSizeMs = classifier.properties.window_size_ms;
+            
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetSampleRate });
+            const source = audioContext.createMediaStreamSource(stream);
+            const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+
+            let audioBuffer = [];
+            // Calculate exactly how many raw samples are needed for a clean inference window
+            const requiredSamples = Math.floor(targetSampleRate * (windowSizeMs / 1000));
+
+            processor.onaudioprocess = (e) => {
+                const inputData = e.inputBuffer.getChannelData(0);
+                audioBuffer.push(...inputData);
+
+                // Slice data chunks once target sample length requirement is hit
+                if (audioBuffer.length >= requiredSamples) {
+                    const chunk = audioBuffer.slice(-requiredSamples);
+                    
+                    try {
+                        // Pass window straight into WASM runtime context safely 
+                        let result = classifier.classify(chunk);
+                        
+                        // Parse label indexes
+                        let scores = {};
+                        result.results.forEach(r => { scores[r.label] = r.value; });
+
+                        // Update standard display blocks UI values
+                        const noiseVal = (scores['Noise'] || 0) * 100;
+                        const dragonVal = (scores['hey_dragon'] || 0) * 100;
+
+                        document.getElementById('noiseScore').innerText = noiseVal.toFixed(1) + "%";
+                        document.getElementById('dragonScore').innerText = dragonVal.toFixed(1) + "%";
+
+                        // Toggle highlight classes based on highest inference winner
+                        document.getElementById('noiseBox').className = `score-card ${noiseVal > 70 ? 'high' : ''}`;
+                        document.getElementById('dragonBox').className = `score-card ${dragonVal > 70 ? 'high' : ''}`;
+
+                    } catch (err) {
+                        console.error("Classification crashed:", err);
+                    }
+
+                    // Keep sliding audio windows smoothly forward over time
+                    audioBuffer = audioBuffer.slice(-Math.floor(requiredSamples / 2));
+                }
+            };
+
+        } catch (err) {
+            statusDiv.innerText = "Error connecting mic: " + err.message;
+        }
+    };
+</script>
+
+</body>
+</html>
