@@ -43,7 +43,6 @@ html<!DOCTYPE html>
     const statusDiv = document.getElementById('status');
 
     // Wait for WebAssembly to boot up completely
-    window.Module = { locateFile: (path) => path };
     window.Module.onRuntimeInitialized = async () => {
         statusDiv.innerText = "Model binaries loaded. Click button to initialize microphone.";
         classifier = new EdgeImpulseClassifier(window.Module);
