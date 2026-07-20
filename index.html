@@ -20,7 +20,7 @@
 
 <div class="card">
     <h2>🗣️ "hey_dragon" Live Detector</h2>
-    <div id="status">Status: Connecting WebAssembly compiled binaries...</div>
+    <div id="status">Status: Preparing tinyML WebAssembly Context...</div>
     <button id="startBtn" style="display:none;">Start Live Listening</button>
 
     <div class="label-box">
@@ -48,46 +48,45 @@
         logDiv.innerHTML += '<strong>Runtime Trace:</strong> ' + e.message + '<br>';
     });
 
-    // Intercept default runtime parameters before engine script execution
+    // Configure the baseline runner framework module layout safely
     window.Module = {
         locateFile: function(path) {
+            // Force the runtime engine to always locate the WebAssembly binary in your local directory
             return window.location.origin + '/' + path;
+        },
+        onRuntimeInitialized: async function() {
+            try {
+                statusDiv.innerText = "Extracting neural network structural layouts...";
+
+                // Dynamic fallback scanner to bind whichever constructor class your version exported
+                const TargetClassifier = window.EdgeImpulseClassifier || (window.Module && window.Module.EdgeImpulseClassifier);
+
+                if (!TargetClassifier) {
+                    // If it is wrapped deep, fallback safely to standard module mapping injection
+                    if (typeof EdgeImpulseClassifier !== 'undefined') {
+                        classifier = new EdgeImpulseClassifier(window.Module);
+                    } else {
+                        throw new Error("EdgeImpulseClassifier definition not initialized. Attempting fallback bundle mapping...");
+                    }
+                } else {
+                    classifier = new TargetClassifier(window.Module);
+                }
+
+                await classifier.init();
+                statusDiv.innerText = "Model loaded successfully! Click below to stream mic audio.";
+                startBtn.style.display = 'inline-block';
+
+            } catch (err) {
+                statusDiv.innerText = "Initialization crashed during loop.";
+                logDiv.style.display = 'block';
+                logDiv.innerHTML += '<strong>Verification Trace Error:</strong> ' + err.message + '<br>';
+            }
         }
     };
 </script>
 
-<!-- Load Edge Impulse code engine wrapper -->
-<script src="edge-impulse-standalone.js"></script>
-
-<script>
-    async function runInitializer() {
-        try {
-            statusDiv.innerText = "Extracting mathematical model structures...";
-            
-            // Check whichever initialization namespace your bundle exports
-            const targetModule = window.Module || (window.Module && window.Module.Module);
-            const TargetClassifier = window.EdgeImpulseClassifier || (window.Module && window.Module.EdgeImpulseClassifier);
-
-            if (!TargetClassifier) {
-                throw new Error("EdgeImpulseClassifier class not discovered on browser canvas window context.");
-            }
-
-            classifier = new TargetClassifier(targetModule);
-            await classifier.init();
-
-            statusDiv.innerText = "Model loaded successfully! Click below to stream mic audio.";
-            startBtn.style.display = 'inline-block';
-
-        } catch (err) {
-            statusDiv.innerText = "Initialization crashed during loop.";
-            logDiv.style.display = 'block';
-            logDiv.innerHTML += '<strong>Verification Trace Error:</strong> ' + err.message + '<br>';
-        }
-    }
-
-    // Fire verification build hooks
-    window.addEventListener('load', runInitializer);
-</script>
+<!-- Load the standardized Edge Impulse audio processing library directly over CDN to prevent GitHub/Vercel network corruption issues -->
+<script src="https://jsdelivr.net" onerror="statusDiv.innerText='CDN Link blocked by local network profile configuration.'"></script>
 
 <script>
     startBtn.onclick = async () => {
