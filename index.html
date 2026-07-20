@@ -37,10 +37,10 @@ html<!DOCTYPE html>
 </div>
 
 <script>
-    window.Module = { locateFile: (path) => path };
     let classifier;
     const startBtn = document.getElementById('startBtn');
     const statusDiv = document.getElementById('status');
+    window.Module = { locateFile: (path) => path };
 
     // Wait for WebAssembly to boot up completely
     window.Module.onRuntimeInitialized = async () => {
