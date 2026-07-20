@@ -37,6 +37,7 @@ html<!DOCTYPE html>
 </div>
 
 <script>
+    window.Module = { locateFile: (path) => path };
     let classifier;
     const startBtn = document.getElementById('startBtn');
     const statusDiv = document.getElementById('status');
