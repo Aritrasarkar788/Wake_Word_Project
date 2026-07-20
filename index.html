@@ -1,28 +1,27 @@
-html<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Austral Project 1: Wake Word Test</title>
-    <!-- Load the Edge Impulse WebAssembly wrapper -->
-    <script src="edge-impulse-standalone.js"></script>
+    <title>Austral Project: Wake Word Test</title>
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background: #f4f6f9; }
         .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 500px; margin: auto; }
         button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
         button:hover { background: #0056b3; }
         .label-box { display: flex; justify-content: space-around; margin-top: 25px; }
-        .score-card { background: #e9ecef; padding: 15px; border-radius: 8px; width: 40%; }
+        .score-card { background: #e9ecef; padding: 15px; border-radius: 8px; width: 40%; transition: 0.3s; }
         .high { background: #28a745 !important; color: white; font-weight: bold; }
-        #status { color: #6c757d; margin: 15px 0; font-size: 14px; }
+        #status { color: #6c757d; margin: 15px 0; font-size: 14px; font-weight: bold; }
+        #debug-log { background: #fff3f3; color: #dc3545; padding: 10px; margin-top: 20px; border-radius: 6px; font-family: monospace; font-size: 12px; text-align: left; display: none; border: 1px solid #f5c6cb; }
     </style>
 </head>
 <body>
 
 <div class="card">
     <h2>🗣️ "hey_dragon" Live Detector</h2>
-    <div id="status">Status: Waiting to load model...</div>
-    <button id="startBtn">Start Live Listening</button>
+    <div id="status">Status: Connecting WebAssembly Engine...</div>
+    <button id="startBtn" style="display:none;">Start Live Listening</button>
 
     <div class="label-box">
         <div id="noiseBox" class="score-card">
@@ -34,37 +33,70 @@ html<!DOCTYPE html>
             <h3 id="dragonScore">0.0%</h3>
         </div>
     </div>
+    
+    <div id="debug-log"></div>
 </div>
 
+<!-- Step 1: Load the Edge Impulse standalone JavaScript runner script first -->
+<script src="edge-impulse-standalone.js"></script>
+
+<!-- Step 2: Safe initialization logic executed AFTER script registration completes -->
 <script>
     let classifier;
     const startBtn = document.getElementById('startBtn');
     const statusDiv = document.getElementById('status');
-    window.Module = { locateFile: (path) => path };
+    const logDiv = document.getElementById('debug-log');
 
-    // Wait for WebAssembly to boot up completely
-    window.Module.onRuntimeInitialized = async () => {
-        statusDiv.innerText = "Model binaries loaded. Click button to initialize microphone.";
-        classifier = new EdgeImpulseClassifier(window.Module);
-        await classifier.init();
-    };
+    // Attach global crash safety handlers 
+    window.addEventListener('error', function(e) {
+        logDiv.style.display = 'block';
+        logDiv.innerHTML += '<strong>Runtime Exception:</strong> ' + e.message + '<br>';
+    });
+
+    async function bootstrapApp() {
+        try {
+            // Confirm the Edge Impulse script mounted successfully
+            if (typeof Module === 'undefined' || typeof EdgeImpulseClassifier === 'undefined') {
+                throw new Error("Edge Impulse JS files could not register cleanly on your network layout.");
+            }
+
+            statusDiv.innerText = "Extracting mathematical model weights...";
+
+            // Intercept asset locator paths natively on the active Module instance 
+            Module.locateFile = function(path) {
+                return window.location.origin + '/' + path;
+            };
+
+            // Safely initialize the classifier context wrapper passing down layout parameters
+            classifier = new EdgeImpulseClassifier(Module);
+            await classifier.init();
+
+            statusDiv.innerText = "Model ready! Ready for live stream audio input.";
+            startBtn.style.display = 'inline-block';
+
+        } catch (err) {
+            statusDiv.innerText = "Deployment crashed during boot loop.";
+            logDiv.style.display = 'block';
+            logDiv.innerHTML += '<strong>Initialization Failure:</strong> ' + err.message + '<br>';
+        }
+    }
+
+    // Safely fire application setup sequence depending on state
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        bootstrapApp();
+    } else {
+        window.addEventListener('DOMContentLoaded', bootstrapApp);
+    }
 
     startBtn.onclick = async () => {
-        if (!classifier) {
-            alert("Model is still loading, please wait a moment.");
-            return;
-        }
-        
-        statusDiv.innerText = "Requesting microphone permission...";
-        
+        statusDiv.innerText = "Requesting microphone permissions...";
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            statusDiv.innerText = "Microphone connected! Listening for your wake word...";
+            statusDiv.innerText = "Microphone connected! Processing stream inference metrics...";
             startBtn.style.display = 'none';
 
-            // Pull audio specs natively expected by your specific MFCC/Classifier block setup
-            const targetSampleRate = classifier.properties.frequency; 
-            const windowSizeMs = classifier.properties.window_size_ms;
+            const targetSampleRate = classifier.properties.frequency || 16000; 
+            const windowSizeMs = classifier.properties.window_size_ms || 1000;
             
             const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: targetSampleRate });
             const source = audioContext.createMediaStreamSource(stream);
@@ -74,47 +106,39 @@ html<!DOCTYPE html>
             processor.connect(audioContext.destination);
 
             let audioBuffer = [];
-            // Calculate exactly how many raw samples are needed for a clean inference window
             const requiredSamples = Math.floor(targetSampleRate * (windowSizeMs / 1000));
 
             processor.onaudioprocess = (e) => {
                 const inputData = e.inputBuffer.getChannelData(0);
                 audioBuffer.push(...inputData);
 
-                // Slice data chunks once target sample length requirement is hit
                 if (audioBuffer.length >= requiredSamples) {
                     const chunk = audioBuffer.slice(-requiredSamples);
                     
                     try {
-                        // Pass window straight into WASM runtime context safely 
                         let result = classifier.classify(chunk);
-                        
-                        // Parse label indexes
                         let scores = {};
                         result.results.forEach(r => { scores[r.label] = r.value; });
 
-                        // Update standard display blocks UI values
                         const noiseVal = (scores['Noise'] || 0) * 100;
                         const dragonVal = (scores['hey_dragon'] || 0) * 100;
 
                         document.getElementById('noiseScore').innerText = noiseVal.toFixed(1) + "%";
                         document.getElementById('dragonScore').innerText = dragonVal.toFixed(1) + "%";
 
-                        // Toggle highlight classes based on highest inference winner
                         document.getElementById('noiseBox').className = `score-card ${noiseVal > 70 ? 'high' : ''}`;
                         document.getElementById('dragonBox').className = `score-card ${dragonVal > 70 ? 'high' : ''}`;
 
                     } catch (err) {
-                        console.error("Classification crashed:", err);
+                        console.error("Classification metrics computation failed:", err);
                     }
 
-                    // Keep sliding audio windows smoothly forward over time
                     audioBuffer = audioBuffer.slice(-Math.floor(requiredSamples / 2));
                 }
             };
-
         } catch (err) {
-            statusDiv.innerText = "Error connecting mic: " + err.message;
+            statusDiv.innerText = "Microphone tracking failed.";
+            alert("Hardware Stream Error: " + err.message);
         }
     };
 </script>
